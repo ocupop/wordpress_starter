@@ -1,0 +1,96 @@
+version: '3.9'
+
+services:
+  nginx:
+    image: nginx:latest
+    container_name: ${APP_NAME}-nginx
+    ports:
+      - '8080:80'
+      - '443:443'
+    volumes:
+      - "./nginx/:/etc/nginx/templates/"
+      - ./wordpress:/var/www/html
+      - ./certs:/etc/certs
+    environment:
+      - "NGINX_ENVSUBST_TEMPLATE_SUFFIX=.conf"
+      - "DOMAIN=${DOMAIN}"
+    depends_on:
+      - wordpress
+    restart: always
+    networks:
+      - default
+
+  mysql:
+    image: mariadb:10.7
+    container_name: ${APP_NAME}-mysql
+    # command: --lower_case_table_names=2
+    # restart: always
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      # MYSQL_ROOT_HOST: '%'  # needs to be enclosed with quotes
+    volumes:
+       - './data/db:/var/lib/mysql'
+       - ./schema/:/docker-entrypoint-initdb.d
+    ports:
+      - '3306:3306'
+    networks:
+      - default
+
+  wordpress:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${APP_NAME}-wordpress
+    volumes:
+      - ./wordpress:/var/www/html
+      # - ./config/php.ini:/usr/local/etc/php/conf.d/php.ini
+    depends_on:
+      - mysql
+    restart: always
+    # ports:
+    #   - 8083:80
+    working_dir: /var/www/html
+    environment:
+      WORDPRESS_DB_HOST: ${DB_HOST}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: ocu_
+      WORDPRESS_CONFIG_EXTRA: |
+        define('FORCE_SSL_ADMIN', true);
+        if (isset($$_GET['debug']) && $$_GET['debug'] == 'debug') {
+          define('WP_DEBUG', true);
+        }
+    networks:
+      - default
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: ${APP_NAME}-phpmyadmin
+    volumes:
+      - ./config/phpmyadmin.ini:/usr/local/etc/php/conf.d/phpmyadmin.ini
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: "${DB_ROOT_PASSWORD}"
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
+    ports:
+      - '8082:80'
+    depends_on:
+      - mysql
+    links:
+      - mysql:mysql
+    networks:
+      - default
+
+  composer:
+    image: composer
+    container_name: ${APP_NAME}-composer
+    working_dir: /var/www/html
+    restart: 'no'
+    volumes:
+      - ./wordpress:/var/www/html:rw,cached
